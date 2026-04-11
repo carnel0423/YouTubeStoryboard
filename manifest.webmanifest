@@ -1,0 +1,18 @@
+{
+  "name": "YouTubeコンテメーカー",
+  "short_name": "YouTubeコンテ",
+  "description": "旅Vlog向けに企画から構成まで整理できるコンテ作成アプリ",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f6efe3",
+  "theme_color": "#d0612c",
+  "lang": "ja",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

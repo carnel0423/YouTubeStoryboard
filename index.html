@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YouTubeコンテメーカー</title>
+  <meta name="theme-color" content="#d0612c">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="YouTubeコンテ">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand-block">
+        <p class="eyebrow">Top Director Mode</p>
+        <h1>YouTubeコンテメーカー</h1>
+        <p class="lead">旅Vlog向けに、企画、CTR設計、冒頭30秒、シーン構成、公開前後の確認まで一気通貫で整理する画面です。</p>
+      </div>
+
+      <section class="panel">
+        <h2>コンテ管理</h2>
+        <p class="helper-text">複数のコンテを管理しやすいように、JSON形式で保存と読み込みができます。</p>
+        <div class="header-actions">
+          <button id="installAppButton" class="secondary-button" hidden>ホーム画面に追加</button>
+          <button id="newConteButton" class="primary-button">新規コンテ作成</button>
+          <button id="saveJsonButton" class="secondary-button">コンテ保存</button>
+          <button id="loadJsonButton" class="secondary-button">コンテ読込</button>
+        </div>
+        <input id="loadJsonInput" type="file" accept=".json,application/json" hidden>
+        <p id="storageStatus" class="helper-text">保存形式: JSON</p>
+        <p id="installStatus" class="helper-text">Webアプリ化: 準備中</p>
+      </section>
+
+      <section class="panel">
+        <h2>企画の核</h2>
+        <div class="field-grid">
+          <label>動画タイトル
+            <input id="videoTitle" type="text" placeholder="例: 3日間で巡る金沢ひとり旅">
+          </label>
+          <label>差し替えテスト案
+            <input id="titleCandidateB" type="text" placeholder="初動CTRが弱いときに試す別タイトル">
+          </label>
+          <label>ジャンル
+            <select id="contentCategory">
+              <option value="entertainment">エンタメ・バイラル</option>
+              <option value="howto">ハウツー・チュートリアル</option>
+              <option value="b2b">B2B・教育・ニッチ</option>
+            </select>
+          </label>
+          <label>想定視聴者
+            <input id="targetAudience" type="text" placeholder="例: 旅先の空気感を疑似体験したい20代-40代">
+          </label>
+          <label>動画の目的
+            <input id="videoGoal" type="text" placeholder="例: 旅の魅力を伝えつつチャンネルの世界観を強化する">
+          </label>
+          <label>想定尺
+            <input id="videoDuration" type="text" placeholder="例: 12分">
+          </label>
+          <label>投稿予定
+            <input id="publishWindow" type="text" placeholder="例: 金曜 15:00">
+          </label>
+        </div>
+        <label>冒頭フック
+          <textarea id="openingHook" rows="3" placeholder="冒頭3秒で見せる一番強い景色や感情"></textarea>
+        </label>
+        <label>視聴後に残したい結論
+          <textarea id="coreMessage" rows="3" placeholder="この旅Vlogを見たあとに残したい感情や印象"></textarea>
+        </label>
+      </section>
+
+      <section class="panel">
+        <h2>CTRパッケージ設計</h2>
+        <p class="helper-text">ここでは公開時のパッケージを磨きます。差し替えテスト案は企画の核で管理します。</p>
+        <div class="field-grid">
+          <label>サムネ主メッセージ
+            <input id="thumbnailMessage" type="text" placeholder="例: 雨の金沢が想像以上だった">
+          </label>
+          <label>サムネ感情トリガー
+            <input id="thumbnailEmotion" type="text" placeholder="例: 没入感、癒し、発見">
+          </label>
+        </div>
+        <label>説明欄の先頭150文字
+          <textarea id="descriptionLead" rows="4" placeholder="外部リンクを入れずに、主要キーワードと動画価値を先頭にまとめる"></textarea>
+        </label>
+        <div class="strategy-metrics">
+          <div><span class="metric-label">タイトル文字数</span><strong id="titleLength">0文字</strong></div>
+          <div><span class="metric-label">先頭40文字</span><strong id="frontLoadedStatus">未評価</strong></div>
+          <div><span class="metric-label">CTR目標帯</span><strong id="ctrBenchmark">-</strong></div>
+          <div><span class="metric-label">説明欄150文字</span><strong id="descriptionStatus">未評価</strong></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>冒頭30秒の設計</h2>
+        <div class="field-grid">
+          <label>フックタイプ
+            <select id="hookType">
+              <option value="story">Story Tease</option>
+              <option value="interrupt">Pattern Interrupt</option>
+              <option value="result">Result Preview</option>
+              <option value="open-loop">Open Loop</option>
+              <option value="bold">Bold Statement</option>
+              <option value="controversy">Controversy</option>
+              <option value="direct-value">Direct Value</option>
+              <option value="question">Compelling Question</option>
+              <option value="social-proof">Social Proof</option>
+            </select>
+          </label>
+          <label>冒頭で約束する価値
+            <input id="openingValuePromise" type="text" placeholder="例: 12分で旅の空気感と回り方のコツが分かる">
+          </label>
+        </div>
+        <label>オープンループの約束
+          <textarea id="openLoopPayoff" rows="3" placeholder="後半で回収する見どころや感情のピーク"></textarea>
+        </label>
+        <label>30〜45秒ごとの変化メモ
+          <textarea id="patternInterruptPlan" rows="3" placeholder="Bロール、移動カット、街の音、テロップ、地図差し込みなど"></textarea>
+        </label>
+        <div class="strategy-metrics">
+          <div><span class="metric-label">フック基準値</span><strong id="hookBenchmark">-</strong></div>
+          <div><span class="metric-label">30秒カバー状況</span><strong id="firstThirtyStatus">-</strong></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>テンプレート追加</h2>
+        <div class="template-list">
+          <button class="ghost-button" data-template="travel-day">旅Vlog 1日密着</button>
+          <button class="ghost-button" data-template="travel-city">街歩きVlog</button>
+          <button class="ghost-button" data-template="travel-cafe">カフェ巡りVlog</button>
+          <button class="ghost-button" data-template="travel-hotel">宿レビューVlog</button>
+          <button class="ghost-button" data-template="travel-food">食べ歩きVlog</button>
+          <button class="ghost-button" data-template="travel-train">移動旅Vlog</button>
+          <button class="ghost-button" data-template="travel-story">旅ストーリー</button>
+          <button class="ghost-button" data-template="review">レビュー構成</button>
+          <button class="ghost-button" data-template="howto">ハウツー構成</button>
+        </div>
+      </section>
+
+      <section class="panel stats-panel">
+        <h2>運用メーター</h2>
+        <dl class="stats-list">
+          <div><dt>総シーン数</dt><dd id="sceneCount">0</dd></div>
+          <div><dt>合計秒数</dt><dd id="totalSeconds">0秒</dd></div>
+          <div><dt>チャプター数</dt><dd id="chapterCount">0</dd></div>
+          <div><dt>CTA数</dt><dd id="ctaCount">0</dd></div>
+        </dl>
+      </section>
+    </aside>
+
+    <main class="workspace">
+      <header class="workspace-header">
+        <div>
+          <p class="eyebrow">Scene Builder</p>
+          <h2>コンテ一覧</h2>
+        </div>
+        <div class="header-actions">
+          <button id="addSceneButton" class="primary-button">シーン追加</button>
+          <button id="pdfButton" class="secondary-button">PDFダウンロード</button>
+          <button id="exportButton" class="secondary-button">テキストDL</button>
+        </div>
+      </header>
+
+      <section id="emptyState" class="empty-state">
+        <h3>まずは1シーン追加しましょう</h3>
+        <p>旅の導入、移動、発見、食事、まとめのように、流れをカードで並べられます。</p>
+      </section>
+
+      <section id="sceneList" class="scene-list"></section>
+
+      <section class="check-grid">
+        <article class="check-card">
+          <div class="check-card-header">
+            <p class="eyebrow">Pre Publish</p>
+            <h3>投稿前チェック</h3>
+          </div>
+          <div class="check-items">
+            <div class="check-item">
+              <span class="check-badge">1</span>
+              <p id="prePublishPoint1">タイトルの先頭40文字に一番強い魅力が入っているか</p>
+            </div>
+            <div class="check-item">
+              <span class="check-badge">2</span>
+              <p id="prePublishPoint2">0:00開始を含む3チャプター以上になっているか</p>
+            </div>
+            <div class="check-item">
+              <span class="check-badge">3</span>
+              <p id="prePublishPoint3">冒頭30秒で最も強い景色か感情を見せられているか</p>
+            </div>
+          </div>
+        </article>
+
+        <article class="check-card">
+          <div class="check-card-header">
+            <p class="eyebrow">Post Publish</p>
+            <h3>公開後の初動</h3>
+          </div>
+          <div class="check-items">
+            <div class="check-item">
+              <span class="check-badge">1</span>
+              <p id="postPublishPoint1">初動48時間のCTRが目標帯を下回っていないか</p>
+            </div>
+            <div class="check-item">
+              <span class="check-badge">2</span>
+              <p id="postPublishPoint2">冒頭30秒維持率が弱ければフックを修正する</p>
+            </div>
+            <div class="check-item">
+              <span class="check-badge">3</span>
+              <p id="postPublishPoint3">維持率が高い区間をShorts候補として残す</p>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section class="panel">
+        <h2>公開後改善と再利用</h2>
+        <div class="field-grid">
+          <label>初動48時間CTR<input id="observedCtr" type="text" placeholder="例: 5.8%"></label>
+          <label>冒頭30秒維持率<input id="observedThirtyRetention" type="text" placeholder="例: 68%"></label>
+          <label>AVD<input id="observedAvd" type="text" placeholder="例: 44%"></label>
+          <label>Quality Scoreメモ<input id="qualityScoreNote" type="text" placeholder="例: 75点突破が見えるか"></label>
+        </div>
+        <label>改善アクション
+          <textarea id="improvementActions" rows="4" placeholder="タイトル差し替え、サムネ変更、冒頭差し替えなど"></textarea>
+        </label>
+        <label>Shorts切り出し候補
+          <textarea id="shortsRepurpose" rows="4" placeholder="最も維持率が高かった区間、Shortsの訴求、長尺への導線"></textarea>
+        </label>
+      </section>
+    </main>
+  </div>
+
+  <template id="sceneTemplate">
+    <article class="scene-card">
+      <div class="scene-card-header">
+        <div>
+          <span class="scene-order"></span>
+          <input class="scene-title" type="text" placeholder="シーン名">
+        </div>
+        <div class="scene-actions">
+          <button class="mini-button move-up" type="button">↑</button>
+          <button class="mini-button move-down" type="button">↓</button>
+          <button class="mini-button danger remove-scene" type="button">削除</button>
+        </div>
+      </div>
+
+      <div class="scene-meta">
+        <label>種類
+          <select class="scene-type">
+            <option value="intro">導入</option>
+            <option value="problem">問題提起</option>
+            <option value="main">本編</option>
+            <option value="example">具体例</option>
+            <option value="summary">まとめ</option>
+            <option value="cta">CTA</option>
+          </select>
+        </label>
+        <label>秒数<input class="scene-seconds" type="number" min="0" step="1" placeholder="30"></label>
+        <label>感情<input class="scene-emotion" type="text" placeholder="例: 驚き、静けさ、没入感"></label>
+        <label>チャプター名<input class="scene-chapter" type="text" placeholder="例: 0:00 金沢駅に到着"></label>
+      </div>
+
+      <div class="scene-grid">
+        <label>話す内容<textarea class="scene-script" rows="4" placeholder="このシーンで話す要点"></textarea></label>
+        <label>画づくり<textarea class="scene-visual" rows="4" placeholder="映像、テロップ、Bロール、カメラ"></textarea></label>
+        <label>演出メモ<textarea class="scene-direction" rows="4" placeholder="テンポ、環境音、BGM、切り返しなど"></textarea></label>
+        <label>CTA / 次へのつなぎ<textarea class="scene-cta" rows="4" placeholder="次シーンへのブリッジや登録促進"></textarea></label>
+        <label>オープンループ<textarea class="scene-open-loop" rows="3" placeholder="このシーンで張る伏線、回収する約束"></textarea></label>
+        <label>パターン変化<textarea class="scene-pattern" rows="3" placeholder="移動カット、地図、字幕、環境音の変化など"></textarea></label>
+      </div>
+    </article>
+  </template>
+
+  <script src="script.js"></script>
+</body>
+</html>
