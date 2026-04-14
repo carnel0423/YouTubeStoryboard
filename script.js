@@ -1,9 +1,10 @@
 const storageKey = "youtube-conte-maker-state";
 const viewModeStorageKey = "youtube-conte-maker-view-mode";
 const driveClientIdStorageKey = "youtube-conte-maker-drive-client-id";
-const driveFileName = "youtube-conte-sync.json";
 const driveScope = "https://www.googleapis.com/auth/drive.appdata";
 const driveFileMimeType = "application/json";
+const driveAppPropertyKey = "app";
+const driveAppPropertyValue = "youtube-conte-maker";
 
 const defaultState = {
   meta: {
@@ -160,6 +161,7 @@ let isViewerMode = loadInitialViewMode();
 let accessToken = "";
 let tokenClient = null;
 let tokenExpiresAt = 0;
+let driveFiles = [];
 
 const metaIds = [
   "googleClientId",
@@ -202,6 +204,7 @@ const viewerHook = document.getElementById("viewerHook");
 const viewerCore = document.getElementById("viewerCore");
 const viewerScenes = document.getElementById("viewerScenes");
 const driveStatus = document.getElementById("driveStatus");
+const driveFileSelect = document.getElementById("driveFileSelect");
 
 initialize();
 
@@ -240,7 +243,9 @@ function bindButtons() {
     if (!shouldReset) {
       return;
     }
+    const preservedGoogleClientId = state.meta.googleClientId || "";
     state = cloneDefaultState();
+    state.meta.googleClientId = preservedGoogleClientId;
     persistState();
     render();
     updateStorageStatus("新規コンテを作成しました。");
@@ -321,6 +326,17 @@ function bindButtons() {
     disconnectGoogleDrive();
   });
 
+  document.getElementById("refreshDriveFilesButton").addEventListener("click", async () => {
+    await refreshDriveFileList({ interactive: true });
+  });
+
+  driveFileSelect.addEventListener("change", () => {
+    const selected = getSelectedDriveFile();
+    if (selected) {
+      updateDriveStatus(`Drive同期: 選択中 (${selected.name})`);
+    }
+  });
+
   document.querySelectorAll("[data-template]").forEach((button) => {
     button.addEventListener("click", () => {
       const scenesToAdd = templates[button.dataset.template].map((scene) => ({ ...scene, id: crypto.randomUUID() }));
@@ -389,6 +405,7 @@ function render() {
   renderCheckLists();
   renderViewer();
   applyViewMode();
+  renderDriveFileOptions();
   updateDriveStatus();
   updateStorageStatus();
 }
@@ -609,7 +626,9 @@ function updateDriveStatus(message) {
     return;
   }
 
-  driveStatus.textContent = "Drive同期: 接続中";
+  driveStatus.textContent = driveFiles.length > 0
+    ? `Drive同期: 接続中 / ${driveFiles.length}件`
+    : "Drive同期: 接続中";
 }
 
 function buildViewerNote(items) {
@@ -667,6 +686,7 @@ async function connectGoogleDrive({ interactive }) {
     }
 
     accessToken = await requestAccessToken(interactive);
+    await refreshDriveFileList({ interactive: false });
     updateDriveStatus("Drive同期: 接続中");
     return true;
   } catch (error) {
@@ -681,6 +701,8 @@ function disconnectGoogleDrive() {
   }
   accessToken = "";
   tokenExpiresAt = 0;
+  driveFiles = [];
+  renderDriveFileOptions();
   updateDriveStatus("Drive同期: 接続解除しました");
 }
 
@@ -692,9 +714,10 @@ async function uploadStateToDrive() {
 
   try {
     updateDriveStatus("Drive同期: Driveへ保存中...");
-    const existingFile = await findDriveSyncFile();
+    const existingFile = getMatchingDriveFileForCurrentState() || await findDriveFileByName(getDriveFileName());
     const payload = JSON.stringify(buildDrivePayload(), null, 2);
     const fileId = await uploadDriveFile(payload, existingFile?.id || "");
+    await refreshDriveFileList({ interactive: false, preferredFileId: fileId });
     updateDriveStatus(`Drive同期: 保存完了 (${existingFile ? "更新" : "新規作成"})`);
     return fileId;
   } catch (error) {
@@ -710,13 +733,17 @@ async function downloadStateFromDrive() {
 
   try {
     updateDriveStatus("Drive同期: Driveから読込中...");
-    const existingFile = await findDriveSyncFile();
-    if (!existingFile?.id) {
+    if (driveFiles.length === 0) {
+      await refreshDriveFileList({ interactive: false });
+    }
+
+    const selectedFile = getSelectedDriveFile() || driveFiles[0];
+    if (!selectedFile?.id) {
       updateDriveStatus("Drive同期: Drive上に保存されたコンテがありません");
       return;
     }
 
-    const response = await fetch(`https://www.googleapis.com/drive/v3/files/${existingFile.id}?alt=media`, {
+    const response = await fetch(`https://www.googleapis.com/drive/v3/files/${selectedFile.id}?alt=media`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -726,7 +753,8 @@ async function downloadStateFromDrive() {
     state = normalizeLoadedState(parsed.state ? parsed : parsed?.payload || parsed);
     persistState();
     render();
-    updateDriveStatus("Drive同期: Driveの内容を読み込みました");
+    driveFileSelect.value = selectedFile.id;
+    updateDriveStatus(`Drive同期: ${selectedFile.name} を読み込みました`);
   } catch (error) {
     updateDriveStatus(`Drive同期: 読込失敗 (${getErrorMessage(error)})`);
   }
@@ -734,15 +762,47 @@ async function downloadStateFromDrive() {
 
 function buildDrivePayload() {
   return {
-    app: "youtube-conte-maker",
+    app: driveAppPropertyValue,
     version: 1,
     savedAt: new Date().toISOString(),
     state,
   };
 }
 
-async function findDriveSyncFile() {
-  const query = encodeURIComponent(`name='${driveFileName}' and trashed=false`);
+async function refreshDriveFileList({ interactive, preferredFileId = "" }) {
+  const ready = await connectGoogleDrive({ interactive });
+  if (!ready) {
+    return [];
+  }
+
+  const files = await listDriveFiles();
+  driveFiles = files;
+  renderDriveFileOptions(preferredFileId);
+  updateDriveStatus();
+  return files;
+}
+
+async function listDriveFiles() {
+  const query = encodeURIComponent(
+    `trashed=false and mimeType='${driveFileMimeType}' and appProperties has { key='${driveAppPropertyKey}' and value='${driveAppPropertyValue}' }`
+  );
+  const response = await fetch(
+    `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&fields=files(id,name,modifiedTime)&orderBy=modifiedTime desc&q=${query}`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    }
+  );
+  await assertDriveResponse(response);
+  const data = await response.json();
+  return data.files || [];
+}
+
+async function findDriveFileByName(fileName) {
+  const query = encodeURIComponent(
+    `name='${fileName.replace(/'/g, "\\'")}' and trashed=false and appProperties has { key='${driveAppPropertyKey}' and value='${driveAppPropertyValue}' }`
+  );
   const response = await fetch(
     `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&fields=files(id,name,modifiedTime)&q=${query}`,
     {
@@ -757,9 +817,10 @@ async function findDriveSyncFile() {
 }
 
 async function uploadDriveFile(content, fileId) {
+  const fileName = getDriveFileName();
   const metadata = fileId
-    ? { name: driveFileName }
-    : { name: driveFileName, parents: ["appDataFolder"] };
+    ? { name: fileName, appProperties: { [driveAppPropertyKey]: driveAppPropertyValue } }
+    : { name: fileName, parents: ["appDataFolder"], appProperties: { [driveAppPropertyKey]: driveAppPropertyValue } };
   const boundary = `conte-app-${Date.now()}`;
   const body = [
     `--${boundary}`,
@@ -789,6 +850,39 @@ async function uploadDriveFile(content, fileId) {
   await assertDriveResponse(response);
   const data = await response.json();
   return data.id;
+}
+
+function renderDriveFileOptions(preferredFileId = "") {
+  const previousValue = preferredFileId || driveFileSelect.value;
+
+  if (driveFiles.length === 0) {
+    driveFileSelect.innerHTML = `<option value="">未取得</option>`;
+    driveFileSelect.value = "";
+    return;
+  }
+
+  driveFileSelect.innerHTML = driveFiles
+    .map((file) => `<option value="${escapeHtml(file.id)}">${escapeHtml(file.name)} (${escapeHtml(formatDriveDate(file.modifiedTime))})</option>`)
+    .join("");
+
+  const nextValue = driveFiles.some((file) => file.id === previousValue)
+    ? previousValue
+    : driveFiles[0].id;
+  driveFileSelect.value = nextValue;
+}
+
+function getSelectedDriveFile() {
+  return driveFiles.find((file) => file.id === driveFileSelect.value) || null;
+}
+
+function getDriveFileName() {
+  const safeTitle = (state.meta.videoTitle || "youtube-conte").trim() || "youtube-conte";
+  return `${safeTitle.replace(/[\\/:*?"<>|]+/g, "-")}.json`;
+}
+
+function getMatchingDriveFileForCurrentState() {
+  const targetName = getDriveFileName();
+  return driveFiles.find((file) => file.name === targetName) || null;
 }
 
 async function assertDriveResponse(response) {
@@ -1145,6 +1239,18 @@ function formatSeconds(value) {
   const minutes = Math.floor(seconds / 60);
   const rest = seconds % 60;
   return rest === 0 ? `${minutes}分` : `${minutes}分${rest}秒`;
+}
+
+function formatDriveDate(value) {
+  if (!value) {
+    return "更新時刻不明";
+  }
+
+  try {
+    return new Date(value).toLocaleString("ja-JP");
+  } catch {
+    return value;
+  }
 }
 
 function escapeHtml(value) {

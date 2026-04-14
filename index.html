@@ -48,8 +48,14 @@
           <button id="connectDriveButton" class="primary-button">Drive接続</button>
           <button id="uploadDriveButton" class="secondary-button">Driveへ保存</button>
           <button id="downloadDriveButton" class="secondary-button">Driveから読込</button>
+          <button id="refreshDriveFilesButton" class="secondary-button">一覧更新</button>
           <button id="disconnectDriveButton" class="secondary-button">接続解除</button>
         </div>
+        <label>Drive上のコンテ一覧
+          <select id="driveFileSelect">
+            <option value="">未取得</option>
+          </select>
+        </label>
         <p id="driveStatus" class="helper-text">Drive同期: 未接続</p>
         <p class="helper-text">初回だけ Google Cloud で OAuth クライアントIDの準備が必要です。</p>
       </section>
