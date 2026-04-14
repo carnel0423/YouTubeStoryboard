@@ -9,6 +9,8 @@ const driveAppPropertyValue = "youtube-conte-maker";
 const defaultState = {
   meta: {
     googleClientId: "",
+    currentDriveFileId: "",
+    currentDriveFileName: "",
     videoTitle: "",
     titleCandidateB: "",
     contentCategory: "howto",
@@ -607,7 +609,8 @@ function updateStorageStatus(message) {
     return;
   }
   const title = state.meta.videoTitle || "未命名コンテ";
-  storageStatus.textContent = `現在のコンテ: ${title} / 保存形式: JSON`;
+  const driveLinked = state.meta.currentDriveFileName ? ` / Drive: ${state.meta.currentDriveFileName}` : "";
+  storageStatus.textContent = `現在のコンテ: ${title}${driveLinked} / 保存形式: JSON`;
 }
 
 function updateDriveStatus(message) {
@@ -714,9 +717,12 @@ async function uploadStateToDrive() {
 
   try {
     updateDriveStatus("Drive同期: Driveへ保存中...");
-    const existingFile = getMatchingDriveFileForCurrentState() || await findDriveFileByName(getDriveFileName());
+    const existingFile = getPreferredDriveFile() || getMatchingDriveFileForCurrentState() || await findDriveFileByName(getDriveFileName());
     const payload = JSON.stringify(buildDrivePayload(), null, 2);
     const fileId = await uploadDriveFile(payload, existingFile?.id || "");
+    state.meta.currentDriveFileId = fileId || "";
+    state.meta.currentDriveFileName = getDriveFileName();
+    persistState();
     await refreshDriveFileList({ interactive: false, preferredFileId: fileId });
     updateDriveStatus(`Drive同期: 保存完了 (${existingFile ? "更新" : "新規作成"})`);
     return fileId;
@@ -751,6 +757,8 @@ async function downloadStateFromDrive() {
     await assertDriveResponse(response);
     const parsed = await response.json();
     state = normalizeLoadedState(parsed.state ? parsed : parsed?.payload || parsed);
+    state.meta.currentDriveFileId = selectedFile.id;
+    state.meta.currentDriveFileName = selectedFile.name;
     persistState();
     render();
     driveFileSelect.value = selectedFile.id;
@@ -873,6 +881,19 @@ function renderDriveFileOptions(preferredFileId = "") {
 
 function getSelectedDriveFile() {
   return driveFiles.find((file) => file.id === driveFileSelect.value) || null;
+}
+
+function getPreferredDriveFile() {
+  const selectedFile = getSelectedDriveFile();
+  if (selectedFile?.id) {
+    return selectedFile;
+  }
+
+  if (state.meta.currentDriveFileId) {
+    return driveFiles.find((file) => file.id === state.meta.currentDriveFileId) || null;
+  }
+
+  return null;
 }
 
 function getDriveFileName() {
