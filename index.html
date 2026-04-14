@@ -12,6 +12,7 @@
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icon.svg">
   <link rel="stylesheet" href="styles.css">
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
   <div class="app-shell">
@@ -26,6 +27,7 @@
         <h2>コンテ管理</h2>
         <p class="helper-text">複数のコンテを管理しやすいように、JSON形式で保存と読み込みができます。</p>
         <div class="header-actions">
+          <button id="toggleViewerButton" class="secondary-button">スマホ確認モード</button>
           <button id="installAppButton" class="secondary-button" hidden>ホーム画面に追加</button>
           <button id="newConteButton" class="primary-button">新規コンテ作成</button>
           <button id="saveJsonButton" class="secondary-button">コンテ保存</button>
@@ -34,6 +36,22 @@
         <input id="loadJsonInput" type="file" accept=".json,application/json" hidden>
         <p id="storageStatus" class="helper-text">保存形式: JSON</p>
         <p id="installStatus" class="helper-text">Webアプリ化: 準備中</p>
+      </section>
+
+      <section class="panel">
+        <h2>Google Drive同期</h2>
+        <p class="helper-text">Google Drive の appDataFolder にコンテを1本保存します。PCとスマホの両方で、同じ Google アカウントに接続すると同期できます。</p>
+        <label>Google OAuth クライアントID
+          <input id="googleClientId" type="text" placeholder="例: 1234567890-xxxxx.apps.googleusercontent.com">
+        </label>
+        <div class="header-actions">
+          <button id="connectDriveButton" class="primary-button">Drive接続</button>
+          <button id="uploadDriveButton" class="secondary-button">Driveへ保存</button>
+          <button id="downloadDriveButton" class="secondary-button">Driveから読込</button>
+          <button id="disconnectDriveButton" class="secondary-button">接続解除</button>
+        </div>
+        <p id="driveStatus" class="helper-text">Drive同期: 未接続</p>
+        <p class="helper-text">初回だけ Google Cloud で OAuth クライアントIDの準備が必要です。</p>
       </section>
 
       <section class="panel">
@@ -172,6 +190,53 @@
       </section>
 
       <section id="sceneList" class="scene-list"></section>
+
+      <section id="viewerShell" class="viewer-shell" hidden>
+        <div class="viewer-header panel">
+          <div>
+            <p class="eyebrow">Mobile Viewer</p>
+            <h3>スマホ確認用</h3>
+            <p class="helper-text">撮影中に確認したい情報だけを、短く読みやすくまとめます。</p>
+          </div>
+          <div class="header-actions viewer-actions">
+            <button id="viewerBackButton" class="secondary-button">編集に戻る</button>
+          </div>
+        </div>
+
+        <section class="viewer-summary-grid">
+          <article class="check-card viewer-card">
+            <div class="check-card-header">
+              <p class="eyebrow">Video</p>
+              <h3>基本情報</h3>
+            </div>
+            <div id="viewerMeta" class="viewer-meta-list"></div>
+          </article>
+
+          <article class="check-card viewer-card">
+            <div class="check-card-header">
+              <p class="eyebrow">Hook</p>
+              <h3>冒頭30秒</h3>
+            </div>
+            <div id="viewerHook" class="viewer-note-block"></div>
+          </article>
+
+          <article class="check-card viewer-card">
+            <div class="check-card-header">
+              <p class="eyebrow">Core</p>
+              <h3>この回で外さないこと</h3>
+            </div>
+            <div id="viewerCore" class="viewer-note-block"></div>
+          </article>
+        </section>
+
+        <section class="check-card viewer-card">
+          <div class="check-card-header">
+            <p class="eyebrow">Scenes</p>
+            <h3>撮影の流れ</h3>
+          </div>
+          <div id="viewerScenes" class="viewer-scene-list"></div>
+        </section>
+      </section>
 
       <section class="check-grid">
         <article class="check-card">

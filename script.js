@@ -1,7 +1,13 @@
 const storageKey = "youtube-conte-maker-state";
+const viewModeStorageKey = "youtube-conte-maker-view-mode";
+const driveClientIdStorageKey = "youtube-conte-maker-drive-client-id";
+const driveFileName = "youtube-conte-sync.json";
+const driveScope = "https://www.googleapis.com/auth/drive.appdata";
+const driveFileMimeType = "application/json";
 
 const defaultState = {
   meta: {
+    googleClientId: "",
     videoTitle: "",
     titleCandidateB: "",
     contentCategory: "howto",
@@ -150,8 +156,13 @@ const templates = {
 
 let state = loadState();
 let deferredInstallPrompt = null;
+let isViewerMode = loadInitialViewMode();
+let accessToken = "";
+let tokenClient = null;
+let tokenExpiresAt = 0;
 
 const metaIds = [
+  "googleClientId",
   "videoTitle",
   "titleCandidateB",
   "contentCategory",
@@ -183,6 +194,14 @@ const storageStatus = document.getElementById("storageStatus");
 const loadJsonInput = document.getElementById("loadJsonInput");
 const installAppButton = document.getElementById("installAppButton");
 const installStatus = document.getElementById("installStatus");
+const toggleViewerButton = document.getElementById("toggleViewerButton");
+const viewerBackButton = document.getElementById("viewerBackButton");
+const viewerShell = document.getElementById("viewerShell");
+const viewerMeta = document.getElementById("viewerMeta");
+const viewerHook = document.getElementById("viewerHook");
+const viewerCore = document.getElementById("viewerCore");
+const viewerScenes = document.getElementById("viewerScenes");
+const driveStatus = document.getElementById("driveStatus");
 
 initialize();
 
@@ -202,6 +221,7 @@ function bindMetaInputs() {
       persistState();
       renderStats();
       renderCheckLists();
+      renderViewer();
       updateStorageStatus();
     };
     element.addEventListener("input", sync);
@@ -277,6 +297,30 @@ function bindButtons() {
     downloadExport(buildExportText());
   });
 
+  toggleViewerButton.addEventListener("click", () => {
+    setViewerMode(!isViewerMode);
+  });
+
+  viewerBackButton.addEventListener("click", () => {
+    setViewerMode(false);
+  });
+
+  document.getElementById("connectDriveButton").addEventListener("click", async () => {
+    await connectGoogleDrive({ interactive: true });
+  });
+
+  document.getElementById("uploadDriveButton").addEventListener("click", async () => {
+    await uploadStateToDrive();
+  });
+
+  document.getElementById("downloadDriveButton").addEventListener("click", async () => {
+    await downloadStateFromDrive();
+  });
+
+  document.getElementById("disconnectDriveButton").addEventListener("click", () => {
+    disconnectGoogleDrive();
+  });
+
   document.querySelectorAll("[data-template]").forEach((button) => {
     button.addEventListener("click", () => {
       const scenesToAdd = templates[button.dataset.template].map((scene) => ({ ...scene, id: crypto.randomUUID() }));
@@ -343,6 +387,9 @@ function render() {
   persistState();
   renderStats();
   renderCheckLists();
+  renderViewer();
+  applyViewMode();
+  updateDriveStatus();
   updateStorageStatus();
 }
 
@@ -401,6 +448,73 @@ function renderCheckLists() {
     : "維持率が高い区間をShorts候補として残す";
 }
 
+function renderViewer() {
+  const metaRows = [
+    { label: "タイトル", value: state.meta.videoTitle || "未入力" },
+    { label: "想定尺", value: state.meta.videoDuration || "未入力" },
+    { label: "想定視聴者", value: state.meta.targetAudience || "未入力" },
+    { label: "サムネ文言", value: state.meta.thumbnailMessage || "未入力" },
+  ];
+
+  viewerMeta.innerHTML = metaRows
+    .map(
+      (row) => `
+        <div class="viewer-meta-row">
+          <span class="viewer-meta-label">${escapeHtml(row.label)}</span>
+          <strong>${escapeHtml(row.value)}</strong>
+        </div>
+      `
+    )
+    .join("");
+
+  viewerHook.innerHTML = buildViewerNote([
+    { label: "冒頭フック", value: state.meta.openingHook || "未入力" },
+    { label: "冒頭の約束", value: state.meta.openingValuePromise || "未入力" },
+    { label: "オープンループ", value: state.meta.openLoopPayoff || "未入力" },
+  ]);
+
+  viewerCore.innerHTML = buildViewerNote([
+    { label: "動画の目的", value: state.meta.videoGoal || "未入力" },
+    { label: "視聴後に残したいこと", value: state.meta.coreMessage || "未入力" },
+    { label: "変化メモ", value: state.meta.patternInterruptPlan || "未入力" },
+  ]);
+
+  if (state.scenes.length === 0) {
+    viewerScenes.innerHTML = `<p class="helper-text">まだシーンがありません。編集画面でコンテを作成してください。</p>`;
+    return;
+  }
+
+  viewerScenes.innerHTML = state.scenes
+    .map(
+      (scene, index) => `
+        <article class="viewer-scene-card">
+          <div class="viewer-scene-top">
+            <span class="scene-order">SCENE ${index + 1}</span>
+            <strong>${escapeHtml(scene.title || "Untitled")}</strong>
+          </div>
+          <div class="viewer-scene-meta">
+            <span>${escapeHtml(scene.chapter || "チャプター未設定")}</span>
+            <span>${escapeHtml(formatSeconds(scene.seconds))}</span>
+            <span>${escapeHtml(scene.emotion || "感情メモなし")}</span>
+          </div>
+          <div class="viewer-scene-block">
+            <p class="viewer-block-title">話す内容</p>
+            <p>${escapeHtml(scene.script || "未入力")}</p>
+          </div>
+          <div class="viewer-scene-block">
+            <p class="viewer-block-title">画づくり</p>
+            <p>${escapeHtml(scene.visual || "未入力")}</p>
+          </div>
+          <div class="viewer-scene-block">
+            <p class="viewer-block-title">次へのつなぎ</p>
+            <p>${escapeHtml(scene.cta || scene.openLoop || "未入力")}</p>
+          </div>
+        </article>
+      `
+    )
+    .join("");
+}
+
 function updateScene(id, key, value) {
   const scene = state.scenes.find((item) => item.id === id);
   if (!scene) {
@@ -410,6 +524,7 @@ function updateScene(id, key, value) {
   persistState();
   renderStats();
   renderCheckLists();
+  renderViewer();
   updateStorageStatus();
 }
 
@@ -476,6 +591,281 @@ function updateStorageStatus(message) {
   }
   const title = state.meta.videoTitle || "未命名コンテ";
   storageStatus.textContent = `現在のコンテ: ${title} / 保存形式: JSON`;
+}
+
+function updateDriveStatus(message) {
+  if (message) {
+    driveStatus.textContent = message;
+    return;
+  }
+
+  if (!state.meta.googleClientId) {
+    driveStatus.textContent = "Drive同期: クライアントID未設定";
+    return;
+  }
+
+  if (!accessToken) {
+    driveStatus.textContent = "Drive同期: クライアントID設定済み / 未接続";
+    return;
+  }
+
+  driveStatus.textContent = "Drive同期: 接続中";
+}
+
+function buildViewerNote(items) {
+  return items
+    .map(
+      (item) => `
+        <div class="viewer-note-row">
+          <p class="viewer-block-title">${escapeHtml(item.label)}</p>
+          <p>${escapeHtml(item.value)}</p>
+        </div>
+      `
+    )
+    .join("");
+}
+
+function setViewerMode(nextMode) {
+  isViewerMode = nextMode;
+  localStorage.setItem(viewModeStorageKey, JSON.stringify(isViewerMode));
+  applyViewMode();
+  syncViewerUrl();
+}
+
+function applyViewMode() {
+  document.body.classList.toggle("viewer-mode", isViewerMode);
+  viewerShell.hidden = !isViewerMode;
+  toggleViewerButton.textContent = isViewerMode ? "編集モードへ" : "スマホ確認モード";
+}
+
+function syncViewerUrl() {
+  const url = new URL(window.location.href);
+  if (isViewerMode) {
+    url.searchParams.set("mode", "viewer");
+  } else {
+    url.searchParams.delete("mode");
+  }
+  window.history.replaceState({}, "", url);
+}
+
+async function connectGoogleDrive({ interactive }) {
+  try {
+    const clientId = getGoogleClientId();
+    if (!clientId) {
+      updateDriveStatus("Drive同期: 先に Google OAuth クライアントIDを入力してください");
+      return false;
+    }
+
+    await ensureGoogleIdentityLoaded();
+    if (!tokenClient || tokenClient.client_id !== clientId) {
+      tokenClient = createTokenClient(clientId);
+    }
+
+    if (accessToken && Date.now() < tokenExpiresAt) {
+      updateDriveStatus("Drive同期: 接続中");
+      return true;
+    }
+
+    accessToken = await requestAccessToken(interactive);
+    updateDriveStatus("Drive同期: 接続中");
+    return true;
+  } catch (error) {
+    updateDriveStatus(`Drive同期: 接続失敗 (${getErrorMessage(error)})`);
+    return false;
+  }
+}
+
+function disconnectGoogleDrive() {
+  if (accessToken && window.google?.accounts?.oauth2?.revoke) {
+    window.google.accounts.oauth2.revoke(accessToken, () => {});
+  }
+  accessToken = "";
+  tokenExpiresAt = 0;
+  updateDriveStatus("Drive同期: 接続解除しました");
+}
+
+async function uploadStateToDrive() {
+  const ready = await connectGoogleDrive({ interactive: true });
+  if (!ready) {
+    return;
+  }
+
+  try {
+    updateDriveStatus("Drive同期: Driveへ保存中...");
+    const existingFile = await findDriveSyncFile();
+    const payload = JSON.stringify(buildDrivePayload(), null, 2);
+    const fileId = await uploadDriveFile(payload, existingFile?.id || "");
+    updateDriveStatus(`Drive同期: 保存完了 (${existingFile ? "更新" : "新規作成"})`);
+    return fileId;
+  } catch (error) {
+    updateDriveStatus(`Drive同期: 保存失敗 (${getErrorMessage(error)})`);
+  }
+}
+
+async function downloadStateFromDrive() {
+  const ready = await connectGoogleDrive({ interactive: true });
+  if (!ready) {
+    return;
+  }
+
+  try {
+    updateDriveStatus("Drive同期: Driveから読込中...");
+    const existingFile = await findDriveSyncFile();
+    if (!existingFile?.id) {
+      updateDriveStatus("Drive同期: Drive上に保存されたコンテがありません");
+      return;
+    }
+
+    const response = await fetch(`https://www.googleapis.com/drive/v3/files/${existingFile.id}?alt=media`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+    await assertDriveResponse(response);
+    const parsed = await response.json();
+    state = normalizeLoadedState(parsed.state ? parsed : parsed?.payload || parsed);
+    persistState();
+    render();
+    updateDriveStatus("Drive同期: Driveの内容を読み込みました");
+  } catch (error) {
+    updateDriveStatus(`Drive同期: 読込失敗 (${getErrorMessage(error)})`);
+  }
+}
+
+function buildDrivePayload() {
+  return {
+    app: "youtube-conte-maker",
+    version: 1,
+    savedAt: new Date().toISOString(),
+    state,
+  };
+}
+
+async function findDriveSyncFile() {
+  const query = encodeURIComponent(`name='${driveFileName}' and trashed=false`);
+  const response = await fetch(
+    `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&fields=files(id,name,modifiedTime)&q=${query}`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    }
+  );
+  await assertDriveResponse(response);
+  const data = await response.json();
+  return data.files?.[0] || null;
+}
+
+async function uploadDriveFile(content, fileId) {
+  const metadata = fileId
+    ? { name: driveFileName }
+    : { name: driveFileName, parents: ["appDataFolder"] };
+  const boundary = `conte-app-${Date.now()}`;
+  const body = [
+    `--${boundary}`,
+    "Content-Type: application/json; charset=UTF-8",
+    "",
+    JSON.stringify(metadata),
+    `--${boundary}`,
+    `Content-Type: ${driveFileMimeType}`,
+    "",
+    content,
+    `--${boundary}--`,
+  ].join("\r\n");
+
+  const method = fileId ? "PATCH" : "POST";
+  const url = fileId
+    ? `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart`
+    : "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart";
+
+  const response = await fetch(url, {
+    method,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": `multipart/related; boundary=${boundary}`,
+    },
+    body,
+  });
+  await assertDriveResponse(response);
+  const data = await response.json();
+  return data.id;
+}
+
+async function assertDriveResponse(response) {
+  if (response.ok) {
+    return;
+  }
+
+  let message = `HTTP ${response.status}`;
+  try {
+    const errorPayload = await response.json();
+    message = errorPayload?.error?.message || message;
+  } catch {}
+  throw new Error(message);
+}
+
+function getGoogleClientId() {
+  return (state.meta.googleClientId || "").trim();
+}
+
+function createTokenClient(clientId) {
+  const instance = window.google.accounts.oauth2.initTokenClient({
+    client_id: clientId,
+    scope: driveScope,
+    callback: () => {},
+  });
+  instance.client_id = clientId;
+  return instance;
+}
+
+function requestAccessToken(interactive) {
+  return new Promise((resolve, reject) => {
+    tokenClient.callback = (response) => {
+      if (response?.error) {
+        reject(new Error(response.error));
+        return;
+      }
+
+      accessToken = response.access_token || "";
+      const expiresInSeconds = Number(response.expires_in || 0);
+      tokenExpiresAt = Date.now() + expiresInSeconds * 1000 - 60000;
+      resolve(accessToken);
+    };
+
+    tokenClient.requestAccessToken({
+      prompt: interactive ? "consent" : "",
+    });
+  });
+}
+
+function ensureGoogleIdentityLoaded() {
+  return new Promise((resolve, reject) => {
+    if (window.google?.accounts?.oauth2) {
+      resolve();
+      return;
+    }
+
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => {
+      if (window.google?.accounts?.oauth2) {
+        window.clearInterval(timer);
+        resolve();
+        return;
+      }
+
+      if (Date.now() - startedAt > 10000) {
+        window.clearInterval(timer);
+        reject(new Error("Google Identity Services の読み込みに失敗しました"));
+      }
+    }, 100);
+  });
+}
+
+function getErrorMessage(error) {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  return "不明なエラー";
 }
 
 function setupPwaSupport() {
@@ -676,18 +1066,26 @@ function escapePdfString(text) {
 
 function persistState() {
   localStorage.setItem(storageKey, JSON.stringify(state));
+  localStorage.setItem(driveClientIdStorageKey, state.meta.googleClientId || "");
 }
 
 function loadState() {
   const saved = localStorage.getItem(storageKey);
+  const savedDriveClientId = localStorage.getItem(driveClientIdStorageKey) || "";
   if (!saved) {
-    return cloneDefaultState();
+    const initialState = cloneDefaultState();
+    initialState.meta.googleClientId = savedDriveClientId;
+    return initialState;
   }
   try {
     const parsed = JSON.parse(saved);
-    return normalizeLoadedState(parsed);
+    const normalized = normalizeLoadedState(parsed);
+    normalized.meta.googleClientId = normalized.meta.googleClientId || savedDriveClientId;
+    return normalized;
   } catch {
-    return cloneDefaultState();
+    const initialState = cloneDefaultState();
+    initialState.meta.googleClientId = savedDriveClientId;
+    return initialState;
   }
 }
 
@@ -714,4 +1112,46 @@ function makeScene(overrides = {}) {
 
 function cloneDefaultState() {
   return JSON.parse(JSON.stringify(defaultState));
+}
+
+function loadInitialViewMode() {
+  const mode = new URLSearchParams(window.location.search).get("mode");
+  if (mode === "viewer") {
+    return true;
+  }
+
+  const saved = localStorage.getItem(viewModeStorageKey);
+  if (!saved) {
+    return false;
+  }
+
+  try {
+    return Boolean(JSON.parse(saved));
+  } catch {
+    return false;
+  }
+}
+
+function formatSeconds(value) {
+  const seconds = Number(value || 0);
+  if (seconds <= 0) {
+    return "秒数未設定";
+  }
+
+  if (seconds < 60) {
+    return `${seconds}秒`;
+  }
+
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return rest === 0 ? `${minutes}分` : `${minutes}分${rest}秒`;
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }

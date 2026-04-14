@@ -41,6 +41,83 @@ button, input, textarea, select { font: inherit; }
   border-radius: 24px;
   box-shadow: var(--shadow);
 }
+.viewer-shell {
+  display: grid;
+  gap: 16px;
+}
+.viewer-summary-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.viewer-card {
+  padding: 20px;
+}
+.viewer-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+}
+.viewer-actions {
+  justify-content: flex-end;
+}
+.viewer-meta-list,
+.viewer-note-block,
+.viewer-scene-list {
+  display: grid;
+  gap: 12px;
+}
+.viewer-meta-row,
+.viewer-note-row,
+.viewer-scene-card {
+  border: 1px solid rgba(121, 98, 86, 0.16);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.62);
+}
+.viewer-meta-row {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+}
+.viewer-meta-label,
+.viewer-block-title {
+  color: var(--subtle);
+  font-size: 0.82rem;
+  margin: 0;
+}
+.viewer-note-row {
+  padding: 12px 14px;
+}
+.viewer-note-row p:last-child {
+  margin-bottom: 0;
+  line-height: 1.7;
+}
+.viewer-scene-card {
+  padding: 14px;
+}
+.viewer-scene-top,
+.viewer-scene-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.viewer-scene-top {
+  align-items: baseline;
+  margin-bottom: 8px;
+}
+.viewer-scene-meta {
+  margin-bottom: 12px;
+  color: var(--subtle);
+  font-size: 0.88rem;
+}
+.viewer-scene-block {
+  margin-top: 10px;
+}
+.viewer-scene-block p:last-child {
+  margin-bottom: 0;
+  line-height: 1.65;
+}
 .brand-block { padding: 10px 8px 0; }
 .eyebrow {
   margin: 0 0 8px;
@@ -169,6 +246,23 @@ input:focus, textarea:focus, select:focus {
   font-weight: 700;
 }
 
+body.viewer-mode .sidebar {
+  display: none;
+}
+
+body.viewer-mode .workspace-header,
+body.viewer-mode #emptyState,
+body.viewer-mode #sceneList,
+body.viewer-mode .check-grid,
+body.viewer-mode .workspace > .panel:not(.viewer-header) {
+  display: none;
+}
+
+body.viewer-mode .app-shell {
+  grid-template-columns: 1fr;
+  max-width: 980px;
+}
+
 @media (max-width: 1080px) {
   .app-shell { grid-template-columns: 1fr; }
   .sidebar {
@@ -208,6 +302,13 @@ input:focus, textarea:focus, select:focus {
   .template-list > button {
     width: 100%;
   }
+  .viewer-summary-grid {
+    grid-template-columns: 1fr;
+  }
+  .viewer-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
   .check-item {
     grid-template-columns: 32px 1fr;
   }
@@ -230,5 +331,8 @@ input:focus, textarea:focus, select:focus {
   }
   .scene-meta {
     grid-template-columns: 1fr;
+  }
+  .viewer-card {
+    padding: 16px;
   }
 }
