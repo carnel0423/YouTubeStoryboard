@@ -11,6 +11,7 @@ const defaultState = {
     googleClientId: "",
     currentDriveFileId: "",
     currentDriveFileName: "",
+    resolveExportFolder: "",
     videoTitle: "",
     titleCandidateB: "",
     contentCategory: "howto",
@@ -167,6 +168,7 @@ let driveFiles = [];
 
 const metaIds = [
   "googleClientId",
+  "resolveExportFolder",
   "videoTitle",
   "titleCandidateB",
   "contentCategory",
@@ -246,8 +248,10 @@ function bindButtons() {
       return;
     }
     const preservedGoogleClientId = state.meta.googleClientId || "";
+    const preservedResolveExportFolder = state.meta.resolveExportFolder || "";
     state = cloneDefaultState();
     state.meta.googleClientId = preservedGoogleClientId;
+    state.meta.resolveExportFolder = preservedResolveExportFolder;
     persistState();
     render();
     updateStorageStatus("新規コンテを作成しました。");
@@ -302,6 +306,10 @@ function bindButtons() {
 
   document.getElementById("exportButton").addEventListener("click", () => {
     downloadExport(buildExportText());
+  });
+
+  document.getElementById("resolveZipButton").addEventListener("click", async () => {
+    await downloadResolveZip();
   });
 
   toggleViewerButton.addEventListener("click", () => {
@@ -1087,6 +1095,370 @@ function downloadExport(output) {
   link.download = `${safeTitle}.txt`;
   link.click();
   URL.revokeObjectURL(url);
+}
+
+async function downloadResolveZip() {
+  if (!state.scenes.length) {
+    updateStorageStatus("Resolve用ZIPを作るにはシーンが必要です。");
+    return;
+  }
+  const safeTitle = safeFileName(state.meta.videoTitle || "storyboard");
+  const resolveExportFolder = normalizeWindowsFolder(state.meta.resolveExportFolder || "");
+  if (!resolveExportFolder) {
+    updateStorageStatus("Resolve書き出しフォルダを入力してから、Resolve用ZIPを作成してください。");
+    return;
+  }
+  const scenes = buildStoryboardScenes();
+  const placeholderEntries = [];
+  for (const scene of scenes) {
+    const blob = await createPlaceholderPng(scene);
+    placeholderEntries.push({
+      name: `placeholders/${scene.fileName}.png`,
+      blob,
+    });
+  }
+  const fcpxml = buildResolveStoryboardFcpxml(scenes, resolveExportFolder);
+  const generatorHtml = buildResolveGeneratorHtml(scenes, state.meta.videoTitle || "Storyboard timeline");
+  const readme = [
+    "DaVinci Resolve import",
+    "",
+    `1. Extract this ZIP directly into: ${resolveExportFolder}`,
+    "2. In DaVinci Resolve, choose File > Import > Timeline.",
+    "3. Select storyboard_timeline.fcpxml from the extracted folder.",
+    "",
+    "The placeholder PNGs are black scene cards. Replace them with real clips during editing.",
+    "If Resolve shows the media as offline, open make_resolve_fcpxml.html from the extracted folder and create storyboard_timeline_absolute.fcpxml.",
+    "",
+  ].join("\n");
+  const zipBlob = await createZip([
+    { name: "storyboard_timeline.fcpxml", blob: new Blob([fcpxml], { type: "application/xml;charset=utf-8" }) },
+    { name: "make_resolve_fcpxml.html", blob: new Blob([generatorHtml], { type: "text/html;charset=utf-8" }) },
+    { name: "README.txt", blob: new Blob([readme], { type: "text/plain;charset=utf-8" }) },
+    ...placeholderEntries,
+  ]);
+  downloadBlob(zipBlob, `${safeTitle}_resolve_storyboard.zip`);
+  updateStorageStatus(`Resolve用ZIPを書き出しました。ZIPを「${resolveExportFolder}」に展開して、storyboard_timeline.fcpxmlを読み込んでください。`);
+}
+
+function buildStoryboardScenes() {
+  let recordFrame = 0;
+  return state.scenes.map((scene, index) => {
+    const seconds = Math.max(1, Number(scene.seconds || 10));
+    const durationFrames = Math.max(1, Math.round(seconds * 30));
+    const item = {
+      index: index + 1,
+      id: scene.id || `scene-${String(index + 1).padStart(2, "0")}`,
+      title: scene.title || `Scene ${index + 1}`,
+      type: scene.type || "scene",
+      seconds,
+      durationFrames,
+      recordFrame,
+      fileName: `${String(index + 1).padStart(2, "0")}_${safeFileName(scene.id || `scene-${index + 1}`)}_${safeFileName(scene.type || "scene")}_${Math.round(seconds)}s`,
+    };
+    recordFrame += durationFrames;
+    return item;
+  });
+}
+
+function buildResolveStoryboardFcpxml(scenes, resolveExportFolder = "") {
+  const totalFrames = scenes.reduce((sum, scene) => sum + scene.durationFrames, 0);
+  const title = xmlEscape(state.meta.videoTitle || "Storyboard timeline");
+  const resources = [
+    '    <format id="r1" name="FFVideoFormat1080p30" frameDuration="1/30s" width="1920" height="1080" />',
+    ...scenes.map((scene) => {
+      const id = `r${scene.index + 1}`;
+      const sourcePath = resolveExportFolder
+        ? windowsPathToFileUrl(joinWindowsPath(resolveExportFolder, "placeholders", `${scene.fileName}.png`))
+        : `placeholders/${encodeURIComponent(scene.fileName)}.png`;
+      return `    <asset id="${id}" name="${xmlEscape(scene.fileName)}.png" src="${xmlEscape(sourcePath)}" start="0s" duration="${scene.durationFrames}/30s" hasVideo="1" format="r1" />`;
+    }),
+  ].join("\n");
+  const clips = scenes.map((scene) => {
+    const id = `r${scene.index + 1}`;
+    const name = xmlEscape(`${String(scene.index).padStart(2, "0")}_${scene.title}_${Math.round(scene.seconds)}s`);
+    return [
+      `            <asset-clip name="${name}" ref="${id}" offset="${scene.recordFrame}/30s" start="0s" duration="${scene.durationFrames}/30s" tcFormat="NDF">`,
+      `              <marker start="0s" duration="${scene.durationFrames}/30s" value="${name}" />`,
+      "            </asset-clip>",
+    ].join("\n");
+  }).join("\n");
+  return [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<fcpxml version="1.8">',
+    '  <resources>',
+    resources,
+    '  </resources>',
+    '  <library>',
+    '    <event name="Storyboard">',
+    `      <project name="${title}">`,
+    `        <sequence format="r1" duration="${Math.max(1, totalFrames)}/30s" tcStart="0s" tcFormat="NDF">`,
+    '          <spine>',
+    clips,
+    '          </spine>',
+    '        </sequence>',
+    '      </project>',
+    '    </event>',
+    '  </library>',
+    '</fcpxml>',
+    '',
+  ].join("\n");
+}
+
+function buildResolveGeneratorHtml(scenes, timelineTitle) {
+  const payload = JSON.stringify({ scenes, timelineTitle });
+  return `<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>Resolve FCPXML Generator</title>
+  <style>
+    body { font-family: "Yu Gothic UI", Meiryo, sans-serif; margin: 32px; line-height: 1.7; color: #222; }
+    button { font: inherit; padding: 12px 18px; border: 0; border-radius: 8px; background: #222; color: #fff; cursor: pointer; }
+    code { background: #f2f2f2; padding: 2px 6px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h1>DaVinci Resolve用FCPXML生成</h1>
+  <p>このHTMLはZIPを展開したフォルダ内で開いてください。</p>
+  <p><button id="download">storyboard_timeline_absolute.fcpxml を作成</button></p>
+  <p>作成後、DaVinci Resolveで <code>ファイル → 読み込み → タイムライン</code> から読み込んでください。</p>
+  <script>
+    const payload = ${payload};
+    document.getElementById("download").addEventListener("click", () => {
+      const base = new URL("./", window.location.href);
+      const fcpxml = buildFcpxml(payload.scenes, payload.timelineTitle, base);
+      const blob = new Blob([fcpxml], { type: "application/xml;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "storyboard_timeline_absolute.fcpxml";
+      link.click();
+      URL.revokeObjectURL(url);
+    });
+
+    function buildFcpxml(scenes, timelineTitle, base) {
+      const totalFrames = scenes.reduce((sum, scene) => sum + scene.durationFrames, 0);
+      const resources = [
+        '    <format id="r1" name="FFVideoFormat1080p30" frameDuration="1/30s" width="1920" height="1080" />',
+        ...scenes.map((scene) => {
+          const src = new URL("placeholders/" + encodeURIComponent(scene.fileName) + ".png", base).href;
+          return '    <asset id="r' + (scene.index + 1) + '" name="' + xmlEscape(scene.fileName) + '.png" src="' + xmlEscape(src) + '" start="0s" duration="' + scene.durationFrames + '/30s" hasVideo="1" format="r1" />';
+        }),
+      ].join("\\n");
+      const clips = scenes.map((scene) => {
+        const name = xmlEscape(String(scene.index).padStart(2, "0") + "_" + scene.title + "_" + Math.round(scene.seconds) + "s");
+        return [
+          '            <asset-clip name="' + name + '" ref="r' + (scene.index + 1) + '" offset="' + scene.recordFrame + '/30s" start="0s" duration="' + scene.durationFrames + '/30s" tcFormat="NDF">',
+          '              <marker start="0s" duration="' + scene.durationFrames + '/30s" value="' + name + '" />',
+          '            </asset-clip>',
+        ].join("\\n");
+      }).join("\\n");
+      return [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<fcpxml version="1.8">',
+        '  <resources>',
+        resources,
+        '  </resources>',
+        '  <library>',
+        '    <event name="Storyboard">',
+        '      <project name="' + xmlEscape(timelineTitle || "Storyboard timeline") + '">',
+        '        <sequence format="r1" duration="' + Math.max(1, totalFrames) + '/30s" tcStart="0s" tcFormat="NDF">',
+        '          <spine>',
+        clips,
+        '          </spine>',
+        '        </sequence>',
+        '      </project>',
+        '    </event>',
+        '  </library>',
+        '</fcpxml>',
+        '',
+      ].join("\\n");
+    }
+
+    function xmlEscape(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+  </script>
+</body>
+</html>`;
+}
+
+function createPlaceholderPng(scene) {
+  return new Promise((resolve) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 1920;
+    canvas.height = 1080;
+    const context = canvas.getContext("2d");
+    context.fillStyle = "#050505";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = "#ffffff";
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.font = '700 76px "Yu Gothic UI", Meiryo, sans-serif';
+    wrapCanvasText(context, `${String(scene.index).padStart(2, "0")} ${scene.title}`, 960, 460, 1500, 92);
+    context.font = '500 52px "Yu Gothic UI", Meiryo, sans-serif';
+    context.fillStyle = "#d8d8d8";
+    context.fillText(`${scene.id} / ${Math.round(scene.seconds)}秒`, 960, 650);
+    canvas.toBlob((blob) => resolve(blob), "image/png");
+  });
+}
+
+function wrapCanvasText(context, text, x, y, maxWidth, lineHeight) {
+  const words = Array.from(text);
+  const lines = [];
+  let line = "";
+  words.forEach((char) => {
+    const testLine = line + char;
+    if (context.measureText(testLine).width > maxWidth && line) {
+      lines.push(line);
+      line = char;
+    } else {
+      line = testLine;
+    }
+  });
+  if (line) {
+    lines.push(line);
+  }
+  const startY = y - ((lines.length - 1) * lineHeight) / 2;
+  lines.forEach((lineText, index) => {
+    context.fillText(lineText, x, startY + index * lineHeight);
+  });
+}
+
+function xmlEscape(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function safeFileName(value) {
+  return String(value || "storyboard")
+    .replace(/[\\/:*?"<>|\s]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 80) || "storyboard";
+}
+
+function normalizeWindowsFolder(value) {
+  return String(value || "")
+    .trim()
+    .replace(/^"|"$/g, "")
+    .replace(/[\\/]+$/g, "");
+}
+
+function joinWindowsPath(folder, ...parts) {
+  return [normalizeWindowsFolder(folder), ...parts]
+    .filter(Boolean)
+    .join("\\");
+}
+
+function windowsPathToFileUrl(path) {
+  const normalized = String(path || "").replace(/\\/g, "/");
+  const match = normalized.match(/^([A-Za-z]:)(?:\/(.*))?$/);
+  if (match) {
+    const [, drive, rest = ""] = match;
+    const encodedRest = rest.split("/").filter(Boolean).map(encodeURIComponent).join("/");
+    return `file:///${drive}/${encodedRest}`;
+  }
+  const encodedPath = normalized.split("/").filter(Boolean).map(encodeURIComponent).join("/");
+  return `file:///${encodedPath}`;
+}
+
+function downloadBlob(blob, fileName) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+async function createZip(entries) {
+  const encoder = new TextEncoder();
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+  for (const entry of entries) {
+    const data = new Uint8Array(await entry.blob.arrayBuffer());
+    const nameBytes = encoder.encode(entry.name);
+    const crc = crc32(data);
+    const localHeader = zipLocalHeader(nameBytes, crc, data.length);
+    localParts.push(localHeader, data);
+    centralParts.push(zipCentralHeader(nameBytes, crc, data.length, offset));
+    offset += localHeader.length + data.length;
+  }
+  const centralSize = centralParts.reduce((sum, part) => sum + part.length, 0);
+  const end = zipEndRecord(entries.length, centralSize, offset);
+  return new Blob([...localParts, ...centralParts, end], { type: "application/zip" });
+}
+
+function zipLocalHeader(nameBytes, crc, size) {
+  const bytes = new Uint8Array(30 + nameBytes.length);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(0, 0x04034b50, true);
+  view.setUint16(4, 20, true);
+  view.setUint16(6, 0x0800, true);
+  view.setUint16(8, 0, true);
+  view.setUint32(14, crc, true);
+  view.setUint32(18, size, true);
+  view.setUint32(22, size, true);
+  view.setUint16(26, nameBytes.length, true);
+  bytes.set(nameBytes, 30);
+  return bytes;
+}
+
+function zipCentralHeader(nameBytes, crc, size, offset) {
+  const bytes = new Uint8Array(46 + nameBytes.length);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(0, 0x02014b50, true);
+  view.setUint16(4, 20, true);
+  view.setUint16(6, 20, true);
+  view.setUint16(8, 0x0800, true);
+  view.setUint16(10, 0, true);
+  view.setUint32(16, crc, true);
+  view.setUint32(20, size, true);
+  view.setUint32(24, size, true);
+  view.setUint16(28, nameBytes.length, true);
+  view.setUint32(42, offset, true);
+  bytes.set(nameBytes, 46);
+  return bytes;
+}
+
+function zipEndRecord(entryCount, centralSize, centralOffset) {
+  const bytes = new Uint8Array(22);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(0, 0x06054b50, true);
+  view.setUint16(8, entryCount, true);
+  view.setUint16(10, entryCount, true);
+  view.setUint32(12, centralSize, true);
+  view.setUint32(16, centralOffset, true);
+  return bytes;
+}
+
+const crcTable = (() => {
+  const table = new Uint32Array(256);
+  for (let index = 0; index < 256; index += 1) {
+    let value = index;
+    for (let bit = 0; bit < 8; bit += 1) {
+      value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+    }
+    table[index] = value >>> 0;
+  }
+  return table;
+})();
+
+function crc32(data) {
+  let crc = 0xffffffff;
+  for (let index = 0; index < data.length; index += 1) {
+    crc = crcTable[(crc ^ data[index]) & 0xff] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
 }
 
 function downloadPdf() {

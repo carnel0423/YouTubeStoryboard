@@ -34,6 +34,10 @@
           <button id="loadJsonButton" class="secondary-button">コンテ読込</button>
         </div>
         <input id="loadJsonInput" type="file" accept=".json,application/json" hidden>
+        <label>Resolve書き出しフォルダ
+          <input id="resolveExportFolder" type="text" placeholder="例: C:\Users\石渡利和\Documents\Youtube 戦略\resolve-export">
+        </label>
+        <p class="helper-text">ZIPをこのフォルダに展開する前提で、Resolve用FCPXMLの素材パスを作ります。</p>
         <p id="storageStatus" class="helper-text">保存形式: JSON</p>
         <p id="installStatus" class="helper-text">Webアプリ化: 準備中</p>
       </section>
@@ -187,6 +191,7 @@
           <button id="addSceneButton" class="primary-button">シーン追加</button>
           <button id="pdfButton" class="secondary-button">PDFダウンロード</button>
           <button id="exportButton" class="secondary-button">テキストDL</button>
+          <button id="resolveZipButton" class="secondary-button">Resolve用ZIP</button>
         </div>
       </header>
 
